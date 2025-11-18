@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -62,8 +63,15 @@ func (i *Issue) Get() string {
 		obf = "updated"
 	}
 
-	if i.params.JQL != "" {
-		q.Raw(i.params.JQL)
+	// Extract ORDER BY from user's JQL if present, so it doesn't end up in the middle
+	userJQL := i.params.JQL
+	var userOrderBy string
+	if userJQL != "" && hasOrderBy(userJQL) {
+		userJQL, userOrderBy = extractOrderBy(userJQL)
+	}
+
+	if userJQL != "" {
+		q.Raw(userJQL)
 	}
 
 	q.And(func() {
@@ -105,10 +113,17 @@ func (i *Issue) Get() string {
 		}
 	})
 
-	if i.params.Reverse {
-		q.OrderBy(obf, jql.DirectionAscending)
+	// Use user's ORDER BY if provided, otherwise use default
+	if userOrderBy != "" {
+		// User provided explicit ORDER BY in their -q query, use it as-is
+		q.OrderByRaw(userOrderBy)
 	} else {
-		q.OrderBy(obf, jql.DirectionDescending)
+		// No user ORDER BY, apply defaults
+		if i.params.Reverse {
+			q.OrderBy(obf, jql.DirectionAscending)
+		} else {
+			q.OrderBy(obf, jql.DirectionDescending)
+		}
 	}
 
 	return q.String()
@@ -368,4 +383,41 @@ func getPaginateParams(paginate string) (uint, uint, error) {
 	}
 
 	return uint(from), uint(limit), nil
+}
+
+// hasOrderBy checks if a JQL query string contains an ORDER BY clause.
+// Returns true if ORDER BY is found (case-insensitive), false otherwise.
+func hasOrderBy(jql string) bool {
+	if jql == "" {
+		return false
+	}
+	// Match "ORDER BY" with optional whitespace, case-insensitive
+	// The regex ensures ORDER BY is a separate clause, not part of a string
+	regx := regexp.MustCompile(`(?i)\bORDER\s+BY\b`)
+	return regx.MatchString(jql)
+}
+
+// extractOrderBy separates the ORDER BY clause from a JQL query.
+// Returns the JQL without ORDER BY, and the ORDER BY clause itself.
+// Example: "status = Done ORDER BY priority ASC" -> ("status = Done", "priority ASC")
+// Note: Gracefully handles edge case where jql is only "ORDER BY ...", returning ("", "...")
+func extractOrderBy(jql string) (string, string) {
+	if jql == "" {
+		return "", ""
+	}
+	// Match ORDER BY and everything after it
+	// The \s* (zero or more spaces) handles the case where ORDER BY is at the start
+	regx := regexp.MustCompile(`(?i)\s*ORDER\s+BY\s+(.+)$`)
+	matches := regx.FindStringSubmatchIndex(jql)
+
+	if matches == nil {
+		return jql, ""
+	}
+
+	// matches[0] and matches[1] are the full match start/end
+	// matches[2] and matches[3] are the captured group (everything after ORDER BY)
+	jqlWithoutOrderBy := strings.TrimSpace(jql[:matches[0]])
+	orderByClause := strings.TrimSpace(jql[matches[2]:matches[3]])
+
+	return jqlWithoutOrderBy, orderByClause
 }

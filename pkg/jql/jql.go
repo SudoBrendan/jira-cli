@@ -163,6 +163,15 @@ func (j *JQL) OrderBy(field, dir string) *JQL {
 	return j
 }
 
+// OrderByRaw sets the ORDER BY clause from a raw string (without the "ORDER BY" prefix).
+// Example: OrderByRaw("priority ASC, created DESC") -> "ORDER BY priority ASC, created DESC"
+func (j *JQL) OrderByRaw(clause string) *JQL {
+	if clause != "" {
+		j.orderBy = fmt.Sprintf("ORDER BY %s", clause)
+	}
+	return j
+}
+
 // And combines filter with AND operator.
 func (j *JQL) And(fn GroupFunc) *JQL {
 	fn()
